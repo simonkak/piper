@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "device_model": null,
+  "debounce_ms": 250,
+  "default_bindings": {
+    "0": { "action": "button", "value": 1 },
+    "1": { "action": "button", "value": 2 },
+    "2": { "action": "button", "value": 3 },
+    "3": { "action": "button", "value": 4 },
+    "4": { "action": "button", "value": 5 },
+    "5": { "action": "special", "value": "RESOLUTION_CYCLE_UP" }
+  },
+  "rules": [
+    {
+      "name": "Tibia",
+      "match": { "resource_class": ["com.tibia.client"] },
+      "bindings": {
+        "0": { "action": "button", "value": 1 },
+        "1": { "action": "button", "value": 2 },
+        "2": { "action": "macro", "value": [["press", "KEY_LEFTALT"], ["tap", "KEY_3"], ["release", "KEY_LEFTALT"]] },
+        "3": { "action": "button", "value": 5 },
+        "4": { "action": "macro", "value": [["press", "KEY_LEFTALT"], ["tap", "KEY_4"], ["release", "KEY_LEFTALT"]] },
+        "5": { "action": "special", "value": "RESOLUTION_CYCLE_UP" }
+      }
+    }
+  ]
+}
