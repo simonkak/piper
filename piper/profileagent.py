@@ -120,7 +120,14 @@ class ProfileAgent:
             name, bindings = rule.name, rule.bindings
 
         if name == self._current:
-            return  # already applied; no device write
+            # Already applied. Also cancel any debounced switch to a *different*
+            # profile that is now stale (e.g. focus B then quickly refocus A),
+            # otherwise that timer would wrongly apply B's bindings to A.
+            self._pending = None
+            if self._debounce_source is not None:
+                GLib.source_remove(self._debounce_source)
+                self._debounce_source = None
+            return
         if name == DEFAULT and not bindings:
             # No default set configured and we've never applied anything: leave
             # the device exactly as the user last set it in piper.
@@ -156,8 +163,9 @@ class ProfileAgent:
                 profile = device.active_profile
                 if profile is None:
                     raise RuntimeError("no active profile")
-                appprofiles.apply_binding_set(profile, bindings)
-                device.commit()
+                changed = appprofiles.apply_binding_set(profile, bindings)
+                if changed:
+                    device.commit()  # skip the device write when nothing changed
                 self._current = name
                 log(f"applied '{name}' ({len(bindings)} button(s))")
                 return
@@ -179,8 +187,13 @@ class ProfileAgent:
 
     def reload(self):
         self._reload_config(force=True)
-        # Force the next activation to re-apply, since bindings may have changed.
+        # Bindings may have changed; drop the cached state and re-evaluate the
+        # window in focus now, so edits to the focused app's profile take effect
+        # immediately instead of only after the next focus change.
         self._current = None
+        if self._seen:
+            rc, caption = self._seen[0]
+            self.window_activated(rc, caption)
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +223,7 @@ def _handle_method_call(
         )
 
 
-def main(argv=None):
+def main():
     agent = ProfileAgent()
 
     node_info = Gio.DBusNodeInfo.new_for_xml(INTROSPECTION_XML)

@@ -79,12 +79,15 @@ class SoftwareProfile:
 
     @property
     def match_text(self):
-        parts = self.match.get("resource_class", []) + self.match.get("caption", [])
-        return ", ".join(parts)
+        # The GUI edits resource_class matches; any hand-authored caption
+        # matches are left untouched (see set_match_text).
+        return ", ".join(self.match.get("resource_class", []))
 
     def set_match_text(self, text):
         needles = [n.strip() for n in text.split(",") if n.strip()]
-        self.match = {"resource_class": needles}
+        match = dict(self.match)
+        match["resource_class"] = needles
+        self.match = match
 
     # The sentinel the agent uses for the no-match fallback.
     @property
@@ -108,9 +111,21 @@ class SoftwareProfileStore:
             self.profiles.append(SoftwareProfile(rule.name, rule.match, rule.bindings))
 
     def add(self, name, bindings):
+        # Names identify profiles to the agent, so keep them unique — otherwise
+        # two "New profile" rules would be indistinguishable when switching.
+        name = self._unique_name(name)
         profile = SoftwareProfile(name, {"resource_class": []}, dict(bindings))
         self.profiles.append(profile)
         return profile
+
+    def _unique_name(self, name):
+        existing = {p.name for p in self.profiles}
+        if name not in existing:
+            return name
+        i = 2
+        while f"{name} {i}" in existing:
+            i += 1
+        return f"{name} {i}"
 
     def remove(self, profile):
         if not profile.is_default and profile in self.profiles:

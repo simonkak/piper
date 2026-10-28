@@ -47,6 +47,7 @@ class MousePerspective(Gtk.Overlay):
         self._profile: Optional[RatbagdProfile] = None  # the hardware canvas
         self._notification_error_timeout_id = 0
         self._store: Optional[SoftwareProfileStore] = None
+        self._baseline: dict = {}  # device state at open; fallback for unset buttons
         self._active_sw = None  # the currently loaded SoftwareProfile
         self._agent = AgentProxy()
         self._match_entry: Optional[Gtk.Entry] = None
@@ -87,6 +88,10 @@ class MousePerspective(Gtk.Overlay):
         active_profile = device.active_profile
         assert active_profile is not None
         self._profile = active_profile
+        # Full snapshot of the device as opened; used so that loading a profile
+        # which doesn't mention a button reverts it to this baseline rather than
+        # keeping the previously loaded profile's mapping.
+        self._baseline = appprofiles.snapshot_bindings(active_profile)
 
         self._store = SoftwareProfileStore()
         self._build_assignment_ui()
@@ -145,8 +150,12 @@ class MousePerspective(Gtk.Overlay):
         """Load a software profile onto the device canvas and refresh the UI."""
         assert self._profile is not None
         self._active_sw = sw_profile
-        if sw_profile.bindings:
-            appprofiles.apply_binding_set(self._profile, sw_profile.bindings)
+        # Apply as a complete set: baseline for unmentioned buttons, then the
+        # profile's own bindings on top. Guarantees no stale mappings leak in
+        # from the previously loaded profile.
+        merged = dict(self._baseline)
+        merged.update(sw_profile.bindings)
+        appprofiles.apply_binding_set(self._profile, merged)
         self._rebuild_pages()
         self.label_profile.set_label(sw_profile.name)
         self._select_row_for(sw_profile)
