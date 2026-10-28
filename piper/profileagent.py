@@ -32,9 +32,6 @@ INTROSPECTION_XML = """
       <arg type='s' name='resource_class' direction='in'/>
       <arg type='s' name='caption' direction='in'/>
     </method>
-    <method name='ApplyRule'>
-      <arg type='s' name='name' direction='in'/>
-    </method>
     <method name='Reload'/>
     <method name='Current'>
       <arg type='s' name='name' direction='out'/>
@@ -174,17 +171,6 @@ class ProfileAgent:
                 self._ratbag = None  # force a fresh connection next time
         log(f"failed to apply '{name}': {last_error!r}")
 
-    def apply_rule_by_name(self, name: str):
-        self._reload_config(force=True)
-        if name == DEFAULT:
-            self._apply(DEFAULT, self._config.default_bindings)
-            return
-        for rule in self._config.rules:
-            if rule.name == name:
-                self._apply(rule.name, rule.bindings)
-                return
-        log(f"no such rule: {name!r}")
-
     def reload(self):
         self._reload_config(force=True)
         # Bindings may have changed; drop the cached state and re-evaluate the
@@ -205,10 +191,6 @@ def _handle_method_call(
     if method_name == "WindowActivated":
         rc, caption = parameters.unpack()
         agent.window_activated(rc, caption)
-        invocation.return_value(None)
-    elif method_name == "ApplyRule":
-        (name,) = parameters.unpack()
-        agent.apply_rule_by_name(name)
         invocation.return_value(None)
     elif method_name == "Reload":
         agent.reload()

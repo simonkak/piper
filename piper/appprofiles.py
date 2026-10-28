@@ -23,7 +23,7 @@ from typing import Dict, List, Optional
 
 from evdev import ecodes
 
-from .ratbagd import RatbagdButton, RatbagdMacro
+from .ratbagd import RatbagdButton, RatbagdMacro, evcode_to_str
 
 
 def config_path() -> str:
@@ -46,10 +46,9 @@ def key_to_code(key) -> int:
 
 def code_to_key(code: int) -> str:
     try:
-        value = ecodes.keys[code]
+        return evcode_to_str(code)  # reuse ratbagd's evdev-name lookup
     except KeyError:
         return str(code)
-    return value[0] if isinstance(value, list) else value
 
 
 # ---------------------------------------------------------------------------
@@ -155,12 +154,29 @@ def apply_binding_set(profile, bindings: Dict[str, Dict]) -> bool:
 # config model
 # ---------------------------------------------------------------------------
 class Rule:
-    """One app -> binding-set association."""
+    """One app -> binding-set association, also used as a GUI profile.
 
-    def __init__(self, name: str, match: Dict, bindings: Dict[str, Dict]):
+    is_default marks the catch-all profile (its bindings are config's
+    default_bindings); it has no match and is applied when nothing else does.
+    """
+
+    def __init__(self, name, match=None, bindings=None, is_default=False):
         self.name = name
-        self.match = match  # e.g. {"resource_class": ["tibia"]}
-        self.bindings = bindings
+        self.match = match or {}  # e.g. {"resource_class": ["tibia"]}
+        self.bindings = bindings or {}
+        self.is_default = is_default
+
+    @property
+    def match_text(self) -> str:
+        """The resource_class match as comma-separated text (for the GUI)."""
+        return ", ".join(self.match.get("resource_class", []))
+
+    def set_match_text(self, text: str) -> None:
+        """Update the resource_class match, preserving any caption match."""
+        needles = [n.strip() for n in text.split(",") if n.strip()]
+        match = dict(self.match)
+        match["resource_class"] = needles
+        self.match = match
 
     def matches(self, resource_class: str, caption: str) -> bool:
         rc = (resource_class or "").lower()

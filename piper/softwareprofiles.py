@@ -4,10 +4,10 @@
 #
 # A device like the G305 exposes a single hardware profile, so piper's native
 # profile selector is normally hidden. Here we populate that same selector with
-# *software* profiles: named binding sets stored in ~/.config/piper/appprofiles.json.
-# Selecting one loads its bindings onto the device so the normal Buttons /
-# Resolutions / Advanced pages edit it; "Apply" snapshots the device back into
-# the selected profile and the focus agent switches between them per window.
+# *software* profiles: named binding sets (appprofiles.Rule) stored in
+# ~/.config/piper/appprofiles.json. Selecting one loads its bindings onto the
+# device so the normal Buttons / Resolutions / Advanced pages edit it; "Apply"
+# snapshots the device back into it and the focus agent switches between them.
 
 from gettext import gettext as _
 
@@ -17,6 +17,7 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import Gio, GLib, GObject, Gtk  # noqa: E402
 
 from . import appprofiles  # noqa: E402
+from .appprofiles import Rule  # noqa: E402
 
 DEFAULT_NAME = _("Default (no app)")
 
@@ -60,61 +61,29 @@ class AgentProxy:
     def reload(self):
         self._call("Reload")
 
-    def apply_rule(self, name):
-        self._call("ApplyRule", GLib.Variant("(s)", (name,)))
-
     def seen_classes(self):
         res = self._call("SeenClasses")
         return list(res.unpack()[0]) if res is not None else []
 
 
-class SoftwareProfile:
-    """One named binding set, optionally matched to an application."""
-
-    def __init__(self, name, match=None, bindings=None, is_default=False):
-        self.name = name
-        self.match = match or {}
-        self.bindings = bindings or {}
-        self.is_default = is_default
-
-    @property
-    def match_text(self):
-        # The GUI edits resource_class matches; any hand-authored caption
-        # matches are left untouched (see set_match_text).
-        return ", ".join(self.match.get("resource_class", []))
-
-    def set_match_text(self, text):
-        needles = [n.strip() for n in text.split(",") if n.strip()]
-        match = dict(self.match)
-        match["resource_class"] = needles
-        self.match = match
-
-    # The sentinel the agent uses for the no-match fallback.
-    @property
-    def agent_name(self):
-        return "__default__" if self.is_default else self.name
-
-
 class SoftwareProfileStore:
-    """Loads/saves the list of software profiles via AppProfilesConfig."""
+    """The list of software profiles (Rule objects) backed by AppProfilesConfig.
+
+    profiles[0] is the catch-all "Default" (its bindings are the config's
+    default_bindings); the rest are the matched rules.
+    """
 
     def __init__(self):
         self.config = appprofiles.AppProfilesConfig.load()
-        self.profiles = []
-        self._load()
-
-    def _load(self):
         self.profiles = [
-            SoftwareProfile(DEFAULT_NAME, {}, self.config.default_bindings, is_default=True)
+            Rule(DEFAULT_NAME, {}, self.config.default_bindings, is_default=True),
+            *self.config.rules,
         ]
-        for rule in self.config.rules:
-            self.profiles.append(SoftwareProfile(rule.name, rule.match, rule.bindings))
 
     def add(self, name, bindings):
-        # Names identify profiles to the agent, so keep them unique — otherwise
-        # two "New profile" rules would be indistinguishable when switching.
+        # Names identify profiles to the agent, so keep them unique.
         name = self._unique_name(name)
-        profile = SoftwareProfile(name, {"resource_class": []}, dict(bindings))
+        profile = Rule(name, {"resource_class": []}, dict(bindings))
         self.profiles.append(profile)
         return profile
 
@@ -132,17 +101,13 @@ class SoftwareProfileStore:
             self.profiles.remove(profile)
 
     def save(self):
-        """Serialise the profiles back into the config file."""
-        default = self.profiles[0]
-        self.config.default_bindings = default.bindings
-        self.config.rules = [
-            appprofiles.Rule(p.name, p.match, p.bindings) for p in self.profiles[1:]
-        ]
+        self.config.default_bindings = self.profiles[0].bindings
+        self.config.rules = self.profiles[1:]
         self.config.save()
 
 
 class SoftwareProfileRow(Gtk.ListBoxRow):
-    """A row in piper's profile popover, backed by a SoftwareProfile."""
+    """A row in piper's profile popover, backed by a Rule."""
 
     __gtype_name__ = "SoftwareProfileRow"
 
@@ -154,8 +119,7 @@ class SoftwareProfileRow(Gtk.ListBoxRow):
         box.set_margin_end(6)
         box.set_margin_top(4)
         box.set_margin_bottom(4)
-        label = Gtk.Label(label=profile.name, xalign=0)
-        box.pack_start(label, True, True, 0)
+        box.pack_start(Gtk.Label(label=profile.name, xalign=0), True, True, 0)
         if not profile.is_default:
             delete = Gtk.Button.new_from_icon_name(
                 "edit-delete-symbolic", Gtk.IconSize.BUTTON
