@@ -70,3 +70,19 @@ gnome.compile_resources('piper', gresource,
                         gresource_bundle: true,
                         install: true,
                         install_dir: pkgdatadir)
+
+# ---- Per-application profile feature -------------------------------------
+# KWin focus reporter (installed into the KWin script search path).
+install_subdir('kwin/piper-appprofiles',
+               install_dir: join_paths(datadir, 'kwin', 'scripts'))
+
+# Example config shipped as documentation / a seed.
+install_data('appprofiles.example.json', install_dir: pkgdatadir)
+
+# systemd --user unit for the background agent.
+agent_unit_conf = configuration_data()
+agent_unit_conf.set('bindir', bindir)
+configure_file(input: 'piper-profile-agent.service.in',
+               output: 'piper-profile-agent.service',
+               configuration: agent_unit_conf,
+               install_dir: join_paths(datadir, 'systemd', 'user'))

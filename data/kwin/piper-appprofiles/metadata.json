@@ -1,0 +1,14 @@
+{
+    "KPlugin": {
+        "Id": "piper-appprofiles",
+        "Name": "Piper App Profiles",
+        "Description": "Reports the focused window to the Piper per-application profile agent.",
+        "Authors": [{ "Name": "Piper contributors" }],
+        "Version": "1.0",
+        "License": "GPL-2.0-or-later",
+        "EnabledByDefault": true
+    },
+    "KPackageStructure": "KWin/Script",
+    "X-Plasma-API": "javascript",
+    "X-Plasma-MainScript": "code/main.js"
+}

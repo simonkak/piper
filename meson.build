@@ -108,6 +108,17 @@ configure_file(input: 'piper.in',
                output: 'piper.devel',
                configuration: config_piper_devel)
 
+# Launcher for the per-application profile agent (run by the systemd user unit
+# installed from data/). It only needs the package importable, so a fresh,
+# minimal configuration keeps it independent of the piper/piper.devel configs.
+config_agent = configuration_data()
+config_agent.set('devel', '')
+configure_file(input: 'piper-profile-agent.in',
+               output: 'piper-profile-agent',
+               configuration: config_agent,
+               install_dir: bindir,
+               install_mode: 'rwxr-xr-x')
+
 if meson.version().version_compare('>=0.59.0')
     gnome.post_install(
         gtk_update_icon_cache: true,

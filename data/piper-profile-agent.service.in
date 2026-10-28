@@ -1,0 +1,14 @@
+[Unit]
+Description=Piper per-application mouse profile agent
+Documentation=https://github.com/libratbag/piper
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=@bindir@/piper-profile-agent
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
