@@ -25,6 +25,10 @@ from .ratbagd import Ratbagd, RatbagdUnavailableError, RatbagdIncompatibleError
 BUS_NAME = "org.piper.AppProfiles"
 OBJECT_PATH = "/org/piper/AppProfiles"
 
+# The KWin focus-reporter script; we reload it once we own our bus name so it
+# re-reports the window in focus (see _retrigger_kwin_focus).
+KWIN_SCRIPT_ID = "piper-appprofiles"
+
 INTROSPECTION_XML = """
 <node>
   <interface name='org.piper.AppProfiles'>
@@ -185,6 +189,48 @@ class ProfileAgent:
 # ---------------------------------------------------------------------------
 # D-Bus glue
 # ---------------------------------------------------------------------------
+def _kwin_script_path():
+    """Locate the installed KWin focus-reporter script across the XDG data dirs."""
+    rel = os.path.join(
+        "kwin", "scripts", KWIN_SCRIPT_ID, "contents", "code", "main.js"
+    )
+    dirs = [os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")]
+    dirs += (os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":")
+    for d in dirs:
+        path = os.path.join(d, rel)
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _retrigger_kwin_focus(connection):
+    """Reload the KWin focus script so it re-reports the window in focus.
+
+    This closes the login-time race: the script's initial report can fire
+    before we own our bus name and be lost, leaving the device on its default
+    bindings until the next focus change.  Reloading once we are ready forces a
+    fresh report.  If KWin is not up yet (we started first) the call fails
+    harmlessly and KWin's own auto-load delivers the first report instead.
+    """
+    path = _kwin_script_path()
+    if path is None:
+        return
+
+    def call(method, params):
+        connection.call_sync(
+            "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting",
+            method, params, None, Gio.DBusCallFlags.NONE, 1000, None,
+        )
+
+    try:
+        call("unloadScript", GLib.Variant("(s)", (KWIN_SCRIPT_ID,)))
+        call("loadScript", GLib.Variant("(ss)", (path, KWIN_SCRIPT_ID)))
+        call("start", None)
+        log("re-triggered KWin focus report")
+    except GLib.Error as e:
+        log(f"KWin focus re-trigger skipped ({e.message}); relying on its auto-load")
+
+
 def _handle_method_call(
     connection, sender, object_path, interface_name, method_name, parameters, invocation, agent
 ):
@@ -228,6 +274,12 @@ def main():
             log(f"failed to register object: {e!r}")
             loop.quit()
 
+    def on_name_acquired(connection, name):
+        # Now that the name is ours (and the object is registered), nudge KWin
+        # to re-report the focused window so a boot/login race can't leave us
+        # idle on the default bindings.
+        _retrigger_kwin_focus(connection)
+
     def on_name_lost(connection, name):
         log(f"lost bus name {name!r} (another agent running?)")
         loop.quit()
@@ -237,7 +289,7 @@ def main():
         BUS_NAME,
         Gio.BusNameOwnerFlags.NONE,
         on_bus_acquired,
-        None,
+        on_name_acquired,
         on_name_lost,
     )
 
