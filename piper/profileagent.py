@@ -66,6 +66,7 @@ class ProfileAgent:
         self._pending = None  # (name, bindings)
         self._last_rc = None  # for discovery logging
         self._seen = []  # recent [(resource_class, caption)], newest first
+        self._session_bus = None  # set once we own our name; used on resume
         self._reload_config(force=True)
 
     def seen_classes(self):
@@ -176,14 +177,27 @@ class ProfileAgent:
         log(f"failed to apply '{name}': {last_error!r}")
 
     def reload(self):
+        # Re-read the config the GUI just saved.  Deliberately do NOT re-apply
+        # to the device here: editing always happens with the piper window
+        # focused, so re-applying the focused window's (no-rule) default profile
+        # would overwrite the bindings the GUI just committed and look like the
+        # save rolled back.  Invalidating _current is enough — the next genuine
+        # focus change applies the freshly saved bindings.
         self._reload_config(force=True)
-        # Bindings may have changed; drop the cached state and re-evaluate the
-        # window in focus now, so edits to the focused app's profile take effect
-        # immediately instead of only after the next focus change.
         self._current = None
-        if self._seen:
-            rc, caption = self._seen[0]
-            self.window_activated(rc, caption)
+
+    def resume(self):
+        # Coming back from suspend, ratbagd may have exited and the device
+        # re-enumerated, leaving our cached connection and _current marker
+        # stale.  Drop them and re-report the window in focus so the right
+        # profile is re-applied on a fresh connection; without this the device
+        # can stay stuck on whatever was applied before sleep, because a focus
+        # event matching _current is skipped.
+        log("resume from sleep: re-applying profile")
+        self._ratbag = None
+        self._current = None
+        if self._session_bus is not None:
+            _retrigger_kwin_focus(self._session_bus)
 
 
 # ---------------------------------------------------------------------------
@@ -275,9 +289,11 @@ def main():
             loop.quit()
 
     def on_name_acquired(connection, name):
-        # Now that the name is ours (and the object is registered), nudge KWin
-        # to re-report the focused window so a boot/login race can't leave us
-        # idle on the default bindings.
+        # Now that the name is ours (and the object is registered), remember the
+        # session bus for resume handling and nudge KWin to re-report the
+        # focused window so a boot/login race can't leave us idle on the default
+        # bindings.
+        agent._session_bus = connection
         _retrigger_kwin_focus(connection)
 
     def on_name_lost(connection, name):
@@ -292,6 +308,28 @@ def main():
         on_name_acquired,
         on_name_lost,
     )
+
+    # Re-apply the right profile after suspend: logind emits PrepareForSleep
+    # with start=False on resume, when ratbagd/the device may have gone stale.
+    def on_prepare_for_sleep(conn, sender, path, iface, signal, params, _user):
+        (going_to_sleep,) = params.unpack()
+        if not going_to_sleep:
+            agent.resume()
+
+    try:
+        system_bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+        system_bus.signal_subscribe(
+            "org.freedesktop.login1",
+            "org.freedesktop.login1.Manager",
+            "PrepareForSleep",
+            "/org/freedesktop/login1",
+            None,
+            Gio.DBusSignalFlags.NONE,
+            on_prepare_for_sleep,
+            None,
+        )
+    except GLib.Error as e:
+        log(f"login1 resume signal unavailable ({e.message}); resume re-apply off")
 
     try:
         agent._ratbagd()
